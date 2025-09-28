@@ -1,0 +1,47 @@
+[
+  {
+    "spotify_track": "LEVITATE (The Summer Song)",
+    "artists": "Jeris Johnson",
+    "duration": "2:23",
+    "album": "LEVITATE (The Summer Song)",
+    "isrc": "USAT22208441",
+    "youtube_url": "https://www.youtube.com/watch?v=TGCfYiNO-t4",
+    "match_debug": {
+      "picked_title": "Jeris Johnson - LEVITATE [Official Audio]",
+      "picked_channel": "Jeris Johnson",
+      "picked_score": -10,
+      "duration_match": true,
+      "queried": "Jeris Johnson - LEVITATE (The Summer Song) official audio LEVITATE (The Summer Song)"
+    }
+  },
+  {
+    "spotify_track": "Windows",
+    "artists": "Social Repose, NITTI",
+    "duration": "3:29",
+    "album": "Windows",
+    "isrc": "TCAJL2531586",
+    "youtube_url": "https://www.youtube.com/watch?v=Fya282rxiGs",
+    "match_debug": {
+      "picked_title": "Social Repose - Zombie (The Cranberries) Rock Version",
+      "picked_channel": "Social Repose",
+      "picked_score": 0,
+      "duration_match": false,
+      "queried": "Social Repose NITTI - Windows official audio Windows"
+    }
+  },
+  {
+    "spotify_track": "The Story Of Our Lives",
+    "artists": "Jeris Johnson",
+    "duration": "3:17",
+    "album": "Dragonborn",
+    "isrc": "QZQAY2410425",
+    "youtube_url": "https://www.youtube.com/watch?v=akPbu6TOx2E",
+    "match_debug": {
+      "picked_title": "Jeris Johnson - When The Darkness Comes (Official Video)",
+      "picked_channel": "Jeris Johnson",
+      "picked_score": 0,
+      "duration_match": true,
+      "queried": "Jeris Johnson - The Story Of Our Lives official audio Dragonborn"
+    }
+  }
+]
