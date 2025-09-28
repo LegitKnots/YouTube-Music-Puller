@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@types/spotify-web-api-node": "^5.0.11",
+    "archiver": "^7.0.1",
     "csv-stringify": "^6.6.0",
     "googleapis": "^160.0.0",
     "next": "15.5.4",
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/archiver": "^6.0.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
