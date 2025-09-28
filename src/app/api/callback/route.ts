@@ -1,8 +1,7 @@
-// src/app/api/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { makeSpotify } from "@/lib/spotify";
 
-export const runtime = "nodejs";          // avoid edge runtime cookie oddities
+export const runtime = "nodejs"; // avoid edge runtime cookie oddities
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {

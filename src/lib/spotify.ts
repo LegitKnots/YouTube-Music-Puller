@@ -1,6 +1,7 @@
 import SpotifyWebApi from "spotify-web-api-node";
 import { CompactTrack } from "./types";
 import { ensureSpotifyAccess } from "./utils";
+import { cookies } from "next/headers";
 
 // API Helper
 export function makeSpotify(redirectUri: string) {
@@ -15,7 +16,9 @@ export function makeSpotify(redirectUri: string) {
 export async function fetchLiked(
   spotify: SpotifyWebApi
 ): Promise<CompactTrack[]> {
-  if (!process.env.SPOTIFY_REFRESH_TOKEN) {
+  const refresh = (await cookies()).get("spotify_refresh_token")?.value;
+
+  if (!refresh) {
     throw new Error("Liked Songs requires SPOTIFY_REFRESH_TOKEN");
   }
   await ensureSpotifyAccess(spotify);
