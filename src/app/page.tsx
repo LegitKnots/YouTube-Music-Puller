@@ -51,6 +51,10 @@ export default function Home() {
   const [log, setLog] = useState<string>("");
   const logRef = useRef<HTMLPreElement>(null);
 
+  // NEW: collected YouTube URLs and MP3 ZIP state
+  const [ytUrls, setYtUrls] = useState<string[]>([]);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+
   // Spotify user (derived from server via httpOnly cookie)
   const [me, setMe] = useState<MeResponse>({ authenticated: false });
   const [meLoading, setMeLoading] = useState(true);
@@ -100,12 +104,62 @@ export default function Home() {
   const appendLog = (line: string) =>
     setLog((prev) => (prev ? prev + "\n" + line : line));
 
+  // NEW: helper to download plain text client-side
+  function downloadTextFile(name: string, text: string) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // NEW: send collected URLs to /api/ytmp3 and download the returned ZIP
+  async function sendUrlsToYtMp3(urls: string[], opts?: { album?: string; concurrency?: number }) {
+    if (!urls.length) return;
+    setDownloadingZip(true);
+    try {
+      const res = await fetch("/api/ytmp3", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          urls,
+          album: opts?.album,
+          concurrency: opts?.concurrency ?? 1, // keep small unless your box is beefy
+        }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || res.statusText);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `yt-mp3-${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      appendLog(`MP3 ZIP error: ${e?.message ?? String(e)}`);
+    } finally {
+      setDownloadingZip(false);
+    }
+  }
+
   const onRun = async () => {
     setIsRunning(true);
     setJsonUrl(null);
     setCsvUrl(null);
     setCount(null);
     setLog("");
+    setYtUrls([]); // clear previous list
 
     // Basic validations
     if (mode === "playlist" && playlistId.trim().length === 0) {
@@ -156,10 +210,16 @@ export default function Home() {
       setCount(data.count ?? null);
       setJsonUrl("/api/download/json");
       setCsvUrl("/api/download/csv");
+
+      // NEW: capture URLs-only list for the new buttons
+      const urlsOnly = Array.isArray(data.urls) ? data.urls : [];
+      setYtUrls(urlsOnly);
+
       appendLog(
         `Done. Processed ${data.count ?? "N/A"} tracks.\n` +
           `JSON: ${location.origin}/api/download/json\n` +
-          `CSV : ${location.origin}/api/download/csv`
+          `CSV : ${location.origin}/api/download/csv` +
+          (urlsOnly.length ? `\nURLs: ${urlsOnly.length} collected` : "")
       );
     } catch (e: any) {
       appendLog(`Unexpected error: ${e?.message ?? String(e)}`);
@@ -203,37 +263,8 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-4">
-              {/* Theme toggle */}
-              {/* <button
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm hover:bg-white dark:hover:bg-slate-700 p-4 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 border border-white/20 dark:border-slate-700/50"
-                aria-label="Toggle theme"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="relative z-10 w-6 h-6">
-                  {isDarkMode ? (
-                    <svg
-                      className="w-6 h-6 text-yellow-500 transition-transform duration-300 group-hover:rotate-12"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  ) : (
-                    <svg
-                      className="w-6 h-6 text-slate-700 transition-transform duration-300 group-hover:-rotate-12"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-                    </svg>
-                  )}
-                </div>
-              </button> */}
+              {/* Theme toggle kept disabled in your original */}
+              {/* <button ... /> */}
 
               {/* Auth area */}
               {meLoading ? (
@@ -563,39 +594,16 @@ export default function Home() {
                     <span className="relative z-10 flex items-center gap-2">
                       {isRunning ? (
                         <>
-                          <svg
-                            className="w-5 h-5 animate-spin"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                            ></circle>
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                            ></path>
+                          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                           </svg>
                           Running…
                         </>
                       ) : (
                         <>
-                          <svg
-                            className="w-5 h-5"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                          >
-                            <path
-                              fillRule="evenodd"
-                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
-                              clipRule="evenodd"
-                            />
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
                           </svg>
                           Run Conversion
                         </>
@@ -612,15 +620,8 @@ export default function Home() {
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <span className="relative z-10 flex items-center gap-2">
-                        <svg
-                          className="w-4 h-4"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                          />
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
                         </svg>
                         Download JSON
                       </span>
@@ -636,37 +637,80 @@ export default function Home() {
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 to-teal-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <span className="relative z-10 flex items-center gap-2">
-                        <svg
-                          className="w-4 h-4"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                          />
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
                         </svg>
                         Download CSV
                       </span>
                     </a>
                   )}
 
+                  {/* NEW: URL list download */}
+                  {ytUrls.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadTextFile(`youtube-urls-${Date.now()}.txt`, ytUrls.join("\n"))
+                      }
+                      className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm hover:bg-white dark:hover:bg-slate-600 transition-all duration-300 flex items-center justify-center font-medium text-sm px-6 py-4 shadow-lg hover:shadow-xl hover:scale-105"
+                      title="Download a .txt containing just the YouTube URLs"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <span className="relative z-10 flex items-center gap-2">
+                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M3 3a2 2 0 012-2h6l6 6v10a2 2 0 01-2 2H5a2 2 0 01-2-2V3zm8 1.5V7h2.5L11 4.5zM7 9h6v2H7V9zm0 4h6v2H7v-2z" />
+                        </svg>
+                        Download URL list
+                      </span>
+                    </button>
+                  )}
+
+                  {/* NEW: Send URLs to MP3 converter */}
+                  {ytUrls.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={downloadingZip}
+                      onClick={() =>
+                        sendUrlsToYtMp3(ytUrls /* , { album: "My Playlist", concurrency: 1 } */)
+                      }
+                      className={`group relative overflow-hidden rounded-xl font-semibold px-8 py-4 transition-all duration-300 shadow-lg hover:shadow-xl ${
+                        !downloadingZip
+                          ? "bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-600 hover:via-teal-600 hover:to-cyan-600 text-white hover:scale-105"
+                          : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
+                      }`}
+                      title="Send collected YouTube URLs to /api/ytmp3 and download a ZIP of MP3s"
+                    >
+                      {!downloadingZip ? (
+                        <span className="relative z-10 flex items-center gap-2">
+                          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M3 3a2 2 0 012-2h10a1 1 0 110 2H5v12a1 1 0 11-2 0V3zm6 8.586V2a1 1 0 112 0v9.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 111.414-1.414L9 11.586z" />
+                          </svg>
+                          Convert URLs to MP3 (ZIP)
+                        </span>
+                      ) : (
+                        <span className="relative z-10 inline-flex items-center gap-2">
+                          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Building MP3 ZIP…
+                        </span>
+                      )}
+                    </button>
+                  )}
+
                   {typeof count === "number" && (
                     <div className="flex items-center gap-2 bg-gradient-to-r from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 text-green-700 dark:text-green-300 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800">
-                      <svg
-                        className="w-4 h-4"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        />
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" />
                       </svg>
                       <span className="text-sm font-medium">
-                        Processed:{" "}
-                        <span className="font-bold tabular-nums">{count}</span>{" "}
-                        tracks
+                        Processed: <span className="font-bold tabular-nums">{count}</span> tracks
+                        {ytUrls.length > 0 ? (
+                          <span className="ml-2 text-xs text-slate-600 dark:text-slate-400">
+                            | URLs: <span className="font-semibold">{ytUrls.length}</span>
+                          </span>
+                        ) : null}
                       </span>
                     </div>
                   )}
