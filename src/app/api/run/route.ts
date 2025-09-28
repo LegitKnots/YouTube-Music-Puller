@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { makeSpotify } from "@/lib/spotify";
-import { fetchLiked, fetchPlaylist, runMapToYouTube, writeOutputs, Options } from "@/lib/core";
+import { fetchLiked, fetchPlaylist, runMapToYouTube, writeOutputs } from "@/lib/core";
+import { Options } from "@/lib/types";
 
 export const maxDuration = 60;           // allow longer runs on some hosts
 export const dynamic = "force-dynamic";  // disable caching
