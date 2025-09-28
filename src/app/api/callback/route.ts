@@ -3,7 +3,8 @@ import { makeSpotify } from "@/lib/spotify";
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
-  if (!code) return NextResponse.json({ error: "Missing code" }, { status: 400 });
+  if (!code)
+    return NextResponse.json({ error: "Missing code" }, { status: 400 });
 
   const spotify = makeSpotify(process.env.SPOTIFY_REDIRECT_URI!);
   try {
@@ -19,6 +20,9 @@ export async function GET(req: NextRequest) {
       { headers: { "content-type": "text/html" } }
     );
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Auth error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message ?? "Auth error" },
+      { status: 500 }
+    );
   }
 }

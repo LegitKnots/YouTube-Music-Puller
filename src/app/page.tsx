@@ -260,7 +260,9 @@ export default function Home() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm">Exclude keywords (comma-separated)</label>
+              <label className="text-sm">
+                Exclude keywords (comma-separated)
+              </label>
               <textarea
                 className="min-h-28 rounded-lg border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-black/20 dark:focus:ring-white/20"
                 value={excludeKeywords}

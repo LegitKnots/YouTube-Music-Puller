@@ -3,8 +3,8 @@ import { fetchLiked, fetchPlaylist, makeSpotify } from "@/lib/spotify";
 import { runMapToYouTube, writeOutputs } from "@/lib/core";
 import { Options } from "@/lib/types";
 
-export const maxDuration = 60;           // allow longer runs on some hosts
-export const dynamic = "force-dynamic";  // disable caching
+export const maxDuration = 60; // allow longer runs on some hosts
+export const dynamic = "force-dynamic"; // disable caching
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,10 +15,13 @@ export async function POST(req: NextRequest) {
 
     const opt: Options = {
       verifyDuration: options.verifyDuration ?? true,
-      toleranceMs: typeof options.toleranceMs === "number" ? options.toleranceMs : 6000,
+      toleranceMs:
+        typeof options.toleranceMs === "number" ? options.toleranceMs : 6000,
       concurrency: Math.min(Math.max(options.concurrency ?? 3, 1), 6),
       preferTopic: options.preferTopic ?? true,
-      excludeKeywords: Array.isArray(options.excludeKeywords) ? options.excludeKeywords : [],
+      excludeKeywords: Array.isArray(options.excludeKeywords)
+        ? options.excludeKeywords
+        : [],
     };
 
     const spotify = makeSpotify(process.env.SPOTIFY_REDIRECT_URI || "");
@@ -37,6 +40,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ count: rows.length });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message ?? "Server error" },
+      { status: 500 }
+    );
   }
 }
