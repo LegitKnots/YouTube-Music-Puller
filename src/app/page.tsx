@@ -136,8 +136,8 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <Image
               className="dark:invert"
-              src="/next.svg"
-              alt="Next.js logo"
+              src="/icon.png"
+              alt="SP2YT Logo"
               width={120}
               height={28}
               priority
