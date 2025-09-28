@@ -5,6 +5,10 @@ import Image from "next/image";
 
 type Mode = "liked" | "playlist";
 
+type MeResponse =
+  | { authenticated: false; error?: string }
+  | { authenticated: true; id: string; username: string; imageUrl: string | null };
+
 export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(true);
 
@@ -47,17 +51,44 @@ export default function Home() {
   const [log, setLog] = useState<string>("");
   const logRef = useRef<HTMLPreElement>(null);
 
+  // Spotify user (derived from server via httpOnly cookie)
+  const [me, setMe] = useState<MeResponse>({ authenticated: false });
+  const [meLoading, setMeLoading] = useState(true);
+
+  // Theme toggle persistence
   useEffect(() => {
-  document.documentElement.classList.toggle("dark", isDarkMode);
-  try { localStorage.setItem("theme", isDarkMode ? "dark" : "light"); } catch {}
-}, [isDarkMode]);
+    document.documentElement.classList.toggle("dark", isDarkMode);
+    try {
+      localStorage.setItem("theme", isDarkMode ? "dark" : "light");
+    } catch {}
+  }, [isDarkMode]);
 
-
+  // Auto-scroll logs
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [log]);
+
+  // Check current Spotify auth via server (reads httpOnly cookie)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setMeLoading(true);
+        const res = await fetch("/api/me", { cache: "no-store" });
+        const data: MeResponse = await res.json();
+        if (!cancelled) setMe(data);
+      } catch {
+        if (!cancelled) setMe({ authenticated: false });
+      } finally {
+        if (!cancelled) setMeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const canRun = useMemo(() => {
     if (mode === "playlist") {
@@ -172,6 +203,7 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-4">
+              {/* Theme toggle */}
               <button
                 onClick={() => setIsDarkMode(!isDarkMode)}
                 className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm hover:bg-white dark:hover:bg-slate-700 p-4 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 border border-white/20 dark:border-slate-700/50"
@@ -203,23 +235,59 @@ export default function Home() {
                 </div>
               </button>
 
-              <a
-                href="/api/login"
-                className="group relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-600 hover:via-teal-600 hover:to-cyan-600 text-white font-semibold px-8 py-4 transition-all duration-300 shadow-lg hover:shadow-2xl hover:scale-105"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
-                <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
-                <span className="relative z-10 flex items-center gap-2">
-                  <svg
-                    className="w-5 h-5"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z" />
-                  </svg>
-                  Login to Spotify
-                </span>
-              </a>
+              {/* Auth area */}
+              {meLoading ? (
+                <div className="h-[52px] min-w-[52px] rounded-2xl bg-white/70 dark:bg-slate-800/70 border border-white/20 dark:border-slate-700/50 animate-pulse" />
+              ) : me.authenticated ? (
+                <div
+                  className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm px-3 py-2 border border-white/20 dark:border-slate-700/50 shadow-lg hover:shadow-xl"
+                  title="Connected to Spotify"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="relative z-10 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl overflow-hidden bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                      {me.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={me.imageUrl}
+                          alt="Spotify profile"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <svg
+                          className="w-5 h-5 text-emerald-600 dark:text-emerald-300"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                        >
+                          <path d="M12 12a5 5 0 100-10 5 5 0 000 10zm-7 9a7 7 0 0114 0H5z" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex flex-col leading-tight">
+                      <span className="text-xs text-emerald-600 dark:text-emerald-300 font-medium">
+                        Connected to Spotify
+                      </span>
+                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate max-w-[180px]">
+                        {me.username}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <a
+                  href="/api/login"
+                  className="group relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-600 hover:via-teal-600 hover:to-cyan-600 text-white font-semibold px-8 py-4 transition-all duration-300 shadow-lg hover:shadow-2xl hover:scale-105"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
+                  <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
+                  <span className="relative z-10 flex items-center gap-2">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z" />
+                    </svg>
+                    Login to Spotify
+                  </span>
+                </a>
+              )}
             </div>
           </div>
 
@@ -552,7 +620,6 @@ export default function Home() {
                           <path
                             fillRule="evenodd"
                             d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                            clipRule="evenodd"
                           />
                         </svg>
                         Download JSON
@@ -577,7 +644,6 @@ export default function Home() {
                           <path
                             fillRule="evenodd"
                             d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                            clipRule="evenodd"
                           />
                         </svg>
                         Download CSV
@@ -595,7 +661,6 @@ export default function Home() {
                         <path
                           fillRule="evenodd"
                           d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          clipRule="evenodd"
                         />
                       </svg>
                       <span className="text-sm font-medium">
@@ -634,13 +699,7 @@ export default function Home() {
             rel="noopener noreferrer"
           >
             <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center group-hover:bg-green-200 dark:group-hover:bg-green-900/50 transition-colors duration-200">
-              <Image
-                aria-hidden
-                src="/globe.svg"
-                alt=""
-                width={16}
-                height={16}
-              />
+              <Image aria-hidden src="/globe.svg" alt="" width={16} height={16} />
             </div>
             <span className="font-medium">Spotify Dashboard</span>
           </a>
@@ -651,13 +710,7 @@ export default function Home() {
             rel="noopener noreferrer"
           >
             <div className="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center group-hover:bg-red-200 dark:group-hover:bg-red-900/50 transition-colors duration-200">
-              <Image
-                aria-hidden
-                src="/globe.svg"
-                alt=""
-                width={16}
-                height={16}
-              />
+              <Image aria-hidden src="/globe.svg" alt="" width={16} height={16} />
             </div>
             <span className="font-medium">YouTube Data API</span>
           </a>
