@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import SpotifyWebApi from "spotify-web-api-node";
 import { CompactTrack, Options } from "./types";
 
@@ -80,7 +81,7 @@ export const buildQuery = (t: CompactTrack) =>
 // Ensure the Spotify API client has a valid access token
 // Uses refresh token if available, otherwise falls back to client credentials grant
 export async function ensureSpotifyAccess(spotify: SpotifyWebApi) {
-  const refresh = process.env.SPOTIFY_REFRESH_TOKEN;
+  const refresh = (await cookies()).get('spotify_refresh_token')?.value
   if (refresh) {
     spotify.setRefreshToken(refresh);
     const { body } = await spotify.refreshAccessToken();

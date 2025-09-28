@@ -1,9 +1,19 @@
 @import "tailwindcss";
 
+/* Light defaults */
 :root {
   --background: #ffffff;
   --foreground: #171717;
 }
+
+/* When <html class="dark"> is present */
+html.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+/* Optional: if you still want OS-default on first paint,
+   keep your pre-hydration script to set/clear the 'dark' class. */
 
 @theme inline {
   --color-background: var(--background);
@@ -12,15 +22,9 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Let the variables control base colors; don't hardcode a different font */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
