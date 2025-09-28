@@ -4,334 +4,11 @@ import SpotifyWebApi from "spotify-web-api-node";
 import pLimit from "p-limit";
 import { stringify } from "csv-stringify/sync";
 import { makeYouTube } from "./youtube";
-import { youtube_v3 } from "googleapis";
 import { CompactTrack, Options, ResultRow } from "./types";
+import { msToHMS } from "./utils";
+import { pickBestYouTube } from "./pickBest";
 
-// ---------- Config for Ollama ----------
-const OLLAMA_URL = process.env.OLLAMA_URL || "";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "";
-
-// ---------- Utilities ----------
-const msToHMS = (ms: number): string => {
-  const s = Math.round(ms / 1000);
-  const m = Math.floor(s / 60);
-  const ss = s % 60;
-  return `${m}:${ss.toString().padStart(2, "0")}`;
-};
-const iso8601ToMs = (iso: string): number => {
-  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
-  if (!m) return 0;
-  const h = parseInt(m[1] ?? "0", 10);
-  const min = parseInt(m[2] ?? "0", 10);
-  const s = parseInt(m[3] ?? "0", 10);
-  return ((h * 60 + min) * 60 + s) * 1000;
-};
-
-const baseBadWords = [
-  "official music video","music video","mv","m/v","live","lyric","lyrics",
-  "visualizer","visualiser","teaser","trailer","dance practice","cover",
-  "fanmade","fan made","reaction","remix","sped up","slowed","8d","nightcore",
-];
-
-const looksBad = (title: string, extra: string[]) => {
-  const t = title.toLowerCase();
-  return [...baseBadWords, ...extra.map(x => x.toLowerCase())].some(w => w && t.includes(w));
-};
-const likeOfficialAudio = (title: string) =>
-  title.toLowerCase().includes("official audio") || /\baudio\b/i.test(title);
-const preferTopic = (channel?: string) => /- Topic$/i.test(channel ?? "");
-
-const scoreCandidate = (title: string, channel: string, opt: Options) => {
-  let score = 0;
-  if (likeOfficialAudio(title)) score -= 10;
-  if (opt.preferTopic && preferTopic(channel)) score -= 15;
-  if (looksBad(title, opt.excludeKeywords)) score += 100;
-  return score;
-};
-
-const buildQuery = (t: CompactTrack) =>
-  `${t.artists.join(" ")} - ${t.name}`.trim();
-
-async function ensureSpotifyAccess(spotify: SpotifyWebApi) {
-  const refresh = process.env.SPOTIFY_REFRESH_TOKEN;
-  if (refresh) {
-    spotify.setRefreshToken(refresh);
-    const { body } = await spotify.refreshAccessToken();
-    spotify.setAccessToken(body.access_token);
-  } else {
-    const cc = await spotify.clientCredentialsGrant();
-    spotify.setAccessToken(cc.body.access_token);
-  }
-}
-
-// ---------- Spotify fetch ----------
-export async function fetchLiked(spotify: SpotifyWebApi): Promise<CompactTrack[]> {
-  if (!process.env.SPOTIFY_REFRESH_TOKEN) {
-    throw new Error("Liked Songs requires SPOTIFY_REFRESH_TOKEN");
-  }
-  await ensureSpotifyAccess(spotify);
-  const out: CompactTrack[] = [];
-  let offset = 0;
-  const limit = 50;
-  while (true) {
-    const { body } = await spotify.getMySavedTracks({ limit, offset });
-    for (const item of body.items) {
-      const t: any = item.track;
-      if (!t) continue;
-      out.push({
-        id: t.id,
-        name: t.name,
-        duration_ms: t.duration_ms,
-        artists: (t.artists ?? []).map((a: any) => a.name),
-        album: { name: t.album?.name, release_date: t.album?.release_date },
-        isrc: t.external_ids?.isrc ?? null,
-      });
-    }
-    if (body.items.length < limit) break;
-    offset += limit;
-  }
-  return out;
-}
-
-export async function fetchPlaylist(spotify: SpotifyWebApi, playlistId: string): Promise<CompactTrack[]> {
-  await ensureSpotifyAccess(spotify);
-  const out: CompactTrack[] = [];
-  let offset = 0;
-  const limit = 100;
-  while (true) {
-    const { body } = await spotify.getPlaylistTracks(playlistId, { limit, offset });
-    for (const item of body.items) {
-      const t: any = (item as any).track;
-      if (!t) continue;
-      out.push({
-        id: t.id,
-        name: t.name,
-        duration_ms: t.duration_ms,
-        artists: (t.artists ?? []).map((a: any) => a.name),
-        album: { name: t.album?.name, release_date: t.album?.release_date },
-        isrc: t.external_ids?.isrc ?? null,
-      });
-    }
-    if (body.items.length < limit) break;
-    offset += limit;
-  }
-  return out;
-}
-
-// ---------- Ollama AI ranker ----------
-type AICandidate = {
-  id: string;
-  title: string;
-  channel: string;
-  duration_ms: number;
-  has_bad_words: boolean;
-  is_topic: boolean;
-  isrc_in_description: boolean;
-  url: string;
-};
-
-async function aiPickBestWithOllama(
-  track: CompactTrack,
-  candidates: AICandidate[]
-): Promise<{ bestId: string | null; confidence?: number; reason?: string }> {
-  // Build a compact, deterministic prompt for JSON-only response
-  const sys = `You are selecting the best YouTube video that matches a Spotify track's OFFICIAL AUDIO (not music video, not live, not lyrics).
-Return STRICT JSON: {"bestId": "<videoId or null>", "confidence": <0..1>, "reason": "<short>"} and NOTHING else.`;
-
-  const user = {
-    track: {
-      title: track.name,
-      artists: track.artists,
-      album: track.album?.name ?? "",
-      duration_ms: track.duration_ms,
-      isrc: track.isrc || null,
-    },
-    instructions: {
-      must_match_title: true,
-      must_prefer_official_audio: true,
-      avoid_music_video_live_lyrics: true,
-      prefer_topic_channel_if_right: true,
-      consider_duration_proximity_ms: true,
-      consider_isrc_in_description: true
-    },
-    candidates,
-  };
-
-  // Ollama /api/generate expects: model, prompt, stream, options
-  // We'll include a simple formatting to push JSON output.
-  const prompt = `${sys}\n\nUser:\n${JSON.stringify(user, null, 2)}\n\nReturn strict JSON only.`;
-
-  try {
-    const res = await fetch(OLLAMA_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0,
-        },
-        // format: "json" is supported by some models; if not, we still enforce via prompt
-        // format: "json",
-      }),
-    });
-
-
-    if (!res.ok) {
-      // Network/HTTP error—fallback
-      return { bestId: null };
-    }
-    const payload = await res.json() as { response?: string };
-    const text = (payload?.response || "").trim();
-    console.log("AI Responded")
-    console.log(text)
-
-    // Try to parse JSON directly; if the model wrapped it in text, extract with a loose regex
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      const m = text.match(/\{[\s\S]*\}/);
-      if (m) {
-        try { parsed = JSON.parse(m[0]); } catch {}
-      }
-    }
-    if (!parsed || typeof parsed !== "object") return { bestId: null };
-
-    const bestId = typeof parsed.bestId === "string" ? parsed.bestId : null;
-    const confidence = typeof parsed.confidence === "number" ? parsed.confidence : undefined;
-    const reason = typeof parsed.reason === "string" ? parsed.reason : undefined;
-    return { bestId, confidence, reason };
-  } catch {
-    return { bestId: null };
-  }
-}
-
-// ---------- YouTube picking (AI + fallback) ----------
-export async function pickBestYouTube(
-  yt: youtube_v3.Youtube,
-  track: CompactTrack,
-  opt: Options
-): Promise<{ url: string | null; debug?: ResultRow["match_debug"] }> {
-  // Pull a slightly bigger pool for the AI to choose from
-  const q = buildQuery(track);
-  const { data } = await yt.search.list({
-    part: ["snippet"],
-    q: q,
-    type: ["video"],
-    maxResults: 12,
-    videoCategoryId: "10",
-  });
-  const items = data.items ?? [];
-  if (items.length === 0) return { url: null, debug: { queried: q } };
-
-  // Enrich candidates with duration + description so the model can reason
-  const ids = items.map((it) => it.id?.videoId).filter(Boolean) as string[];
-  const details = new Map<string, { duration_ms: number; description: string }>();
-
-  // videos.list can take up to 50 ids; we have <=12 already
-  if (ids.length > 0) {
-    const vd = await yt.videos.list({
-      id: ids,
-      part: ["contentDetails", "snippet"],
-    });
-    for (const v of vd.data.items ?? []) {
-      const dur = iso8601ToMs(v.contentDetails?.duration ?? "PT0S");
-      const desc = v.snippet?.description ?? "";
-      details.set(v.id!, { duration_ms: dur, description: desc });
-    }
-  }
-
-  const aiCandidates: AICandidate[] = items.map((it) => {
-    const id = it.id?.videoId ?? "";
-    const title = it.snippet?.title ?? "";
-    const channel = it.snippet?.channelTitle ?? "";
-    const d = details.get(id);
-    const dur = d?.duration_ms ?? 0;
-    const desc = d?.description ?? "";
-    return {
-      id,
-      title,
-      channel,
-      duration_ms: dur,
-      has_bad_words: looksBad(title, opt.excludeKeywords),
-      is_topic: preferTopic(channel),
-      isrc_in_description: !!(track.isrc && desc.toUpperCase().includes(track.isrc.toUpperCase())),
-      url: id ? `https://www.youtube.com/watch?v=${id}` : "",
-    };
-  }).filter(c => c.id);
-
-  // Ask Ollama to pick the best
-  let chosenId: string | null = null;
-  let aiReason: string | undefined;
-  try {
-    const ai = await aiPickBestWithOllama(track, aiCandidates);
-    chosenId = ai.bestId || null;
-    aiReason = ai.reason;
-  } catch {
-    // ignore — fallback below
-  }
-
-  // Fallback to heuristic (with duration check) when AI fails or returns null
-  if (!chosenId) {
-    const candidates = aiCandidates
-      .map((c) => ({
-        id: c.id,
-        title: c.title,
-        channel: c.channel,
-        score: scoreCandidate(c.title, c.channel, opt),
-      }))
-      .sort((a, b) => a.score - b.score);
-
-    let pick = candidates[0];
-    let durationMatch: boolean | undefined;
-
-    if (opt.verifyDuration && pick?.id) {
-      const d = details.get(pick.id)?.duration_ms ?? 0;
-      durationMatch = Math.abs(d - track.duration_ms) <= opt.toleranceMs;
-      if (!durationMatch) {
-        for (let i = 1; i < candidates.length; i++) {
-          const alt = candidates[i];
-          const d2 = details.get(alt.id)?.duration_ms ?? 0;
-          if (Math.abs(d2 - track.duration_ms) <= opt.toleranceMs) {
-            pick = alt;
-            durationMatch = true;
-            break;
-          }
-        }
-      }
-    }
-
-    return {
-      url: pick?.id ? `https://www.youtube.com/watch?v=${pick.id}` : null,
-      debug: {
-        picked_title: pick?.title,
-        picked_channel: pick?.channel,
-        picked_score: pick?.score,
-        duration_match: opt.verifyDuration ? !!durationMatch : undefined,
-        queried: q,
-      } as any,
-    };
-  }
-
-  // happy path — AI provided a choice
-  const picked = aiCandidates.find((c) => c.id === chosenId);
-  return {
-    url: picked ? `https://www.youtube.com/watch?v=${picked.id}` : null,
-    debug: {
-      picked_title: picked?.title,
-      picked_channel: picked?.channel,
-      picked_score: undefined, // AI-based
-      duration_match: opt.verifyDuration
-        ? Math.abs((picked?.duration_ms || 0) - track.duration_ms) <= opt.toleranceMs
-        : undefined,
-      queried: q + " [AI]",
-    },
-  };
-}
-
-// ---------- Main mapper ----------
+// Main Wrapper
 export async function runMapToYouTube(
   spotify: SpotifyWebApi,
   tracks: CompactTrack[],
@@ -373,18 +50,31 @@ export async function runMapToYouTube(
   return rows;
 }
 
-// ---------- Outputs ----------
+// Outputs
 export function writeOutputs(rows: ResultRow[]) {
-  const dir = process.env.NODE_ENV === "production" ? "/tmp" : path.join(process.cwd(), "output");
+  const dir =
+    process.env.NODE_ENV === "production"
+      ? "/tmp"
+      : path.join(process.cwd(), "output");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const jsonPath = path.join(dir, "spotify_to_youtube.json");
-  const csvPath  = path.join(dir, "spotify_to_youtube.csv");
+  const csvPath = path.join(dir, "spotify_to_youtube.csv");
 
   fs.writeFileSync(jsonPath, JSON.stringify(rows, null, 2), "utf8");
 
   const csv = stringify(
-    rows.map((r) => [r.spotify_track, r.artists, r.duration, r.album, r.isrc ?? "", r.youtube_url ?? ""]),
-    { header: true, columns: ["Track","Artists","Duration","Album","ISRC","YouTube URL"] }
+    rows.map((r) => [
+      r.spotify_track,
+      r.artists,
+      r.duration,
+      r.album,
+      r.isrc ?? "",
+      r.youtube_url ?? "",
+    ]),
+    {
+      header: true,
+      columns: ["Track", "Artists", "Duration", "Album", "ISRC", "YouTube URL"],
+    }
   );
   fs.writeFileSync(csvPath, csv, "utf8");
 

@@ -1,5 +1,6 @@
 import { google, youtube_v3 } from "googleapis";
 
+// API Helper
 export function makeYouTube(): youtube_v3.Youtube {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) throw new Error("Missing YOUTUBE_API_KEY");
