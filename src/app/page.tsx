@@ -204,7 +204,7 @@ export default function Home() {
 
             <div className="flex items-center gap-4">
               {/* Theme toggle */}
-              <button
+              {/* <button
                 onClick={() => setIsDarkMode(!isDarkMode)}
                 className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm hover:bg-white dark:hover:bg-slate-700 p-4 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 border border-white/20 dark:border-slate-700/50"
                 aria-label="Toggle theme"
@@ -233,7 +233,7 @@ export default function Home() {
                     </svg>
                   )}
                 </div>
-              </button>
+              </button> */}
 
               {/* Auth area */}
               {meLoading ? (
